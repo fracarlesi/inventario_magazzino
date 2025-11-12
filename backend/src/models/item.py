@@ -61,10 +61,10 @@ class Item(Base):
     )
 
     # Relationships
+    # Note: FR-015 deletion prevention is handled at API level (check movements before delete)
     movements = relationship(
         "Movement",
         back_populates="item",
-        cascade="restrict",  # FR-015: Prevent deletion if movements exist
     )
 
     # Constraints
