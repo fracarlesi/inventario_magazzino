@@ -71,17 +71,24 @@ export function generateExcel(exportData: ExportData): XLSX.WorkBook {
 
   // ===== SHEET 1: Inventario =====
   // FR-026: Columns: Nome, Categoria, Unità, Giacenza, Min. Scorta, Sotto Scorta, Costo Unitario, Valore, Note
-  const inventoryData = exportData.inventory.map((item) => ({
-    'Nome': item.name,
-    'Categoria': item.category || 'Senza categoria',
-    'Unità': item.unit,
-    'Giacenza': formatNumberIT(parseFloat(item.stock_quantity), 3), // Support up to 3 decimals
-    'Min. Scorta': formatNumberIT(parseFloat(item.min_stock), 3),
-    'Sotto Scorta': formatBooleanIT(item.is_under_min_stock),
-    'Costo Unitario': formatCurrencyIT(parseFloat(item.unit_cost)),
-    'Valore': formatCurrencyIT(parseFloat(item.stock_value)),
-    'Note': item.notes || '',
-  }));
+  const inventoryData = exportData.inventory.map((item) => {
+    const stockQty = parseFloat(item.stock_quantity);
+    const minStock = parseFloat(item.min_stock);
+    const unitCost = parseFloat(item.unit_cost);
+    const stockVal = parseFloat(item.stock_value);
+
+    return {
+      'Nome': item.name,
+      'Categoria': item.category || 'Senza categoria',
+      'Unità': item.unit,
+      'Giacenza': formatNumberIT(stockQty, 3), // Support up to 3 decimals
+      'Min. Scorta': formatNumberIT(minStock, 3),
+      'Sotto Scorta': formatBooleanIT(item.is_under_min_stock),
+      'Costo Unitario': formatCurrencyIT(unitCost),
+      'Valore': formatCurrencyIT(stockVal),
+      'Note': item.notes || '',
+    };
+  });
 
   // Create inventory sheet
   const inventorySheet = XLSX.utils.json_to_sheet(inventoryData);
@@ -103,17 +110,20 @@ export function generateExcel(exportData: ExportData): XLSX.WorkBook {
 
   // ===== SHEET 2: Movimenti_ultimi_12_mesi =====
   // FR-027: Columns: Data, Articolo, Tipo, Quantità, Unità, Costo Unitario usato, Nota
-  const movementsData = exportData.movements.map((movement) => ({
-    'Data': formatDateIT(movement.movement_date),
-    'Articolo': movement.item_name,
-    'Tipo': movement.movement_type,
-    'Quantità': formatNumberIT(parseFloat(movement.quantity), 3), // Show sign for ADJUSTMENT
-    'Unità': '-', // Unit will be fetched from item if needed
-    'Costo Unitario': movement.unit_cost_override
-      ? formatCurrencyIT(parseFloat(movement.unit_cost_override))
-      : '-',
-    'Nota': movement.note || '',
-  }));
+  const movementsData = exportData.movements.map((movement) => {
+    const qty = parseFloat(movement.quantity);
+    const unitCostOverride = movement.unit_cost_override ? parseFloat(movement.unit_cost_override) : null;
+
+    return {
+      'Data': formatDateIT(movement.movement_date),
+      'Articolo': movement.item_name,
+      'Tipo': movement.movement_type,
+      'Quantità': formatNumberIT(qty, 3), // Show sign for ADJUSTMENT
+      'Unità': '-', // Unit will be fetched from item if needed
+      'Costo Unitario': unitCostOverride ? formatCurrencyIT(unitCostOverride) : '-',
+      'Nota': movement.note || '',
+    };
+  });
 
   // Create movements sheet
   const movementsSheet = XLSX.utils.json_to_sheet(movementsData);
