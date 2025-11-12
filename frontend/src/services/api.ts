@@ -39,6 +39,14 @@ async function handleResponse<T>(response: Response): Promise<T> {
     }
 
     // Throw ApiError with Italian message from backend
+    if (!errorData) {
+      throw new ApiError(
+        response.status,
+        "UNKNOWN_ERROR",
+        { message: "Errore di comunicazione con il server" }
+      );
+    }
+
     throw new ApiError(
       response.status,
       errorData.error_code,
