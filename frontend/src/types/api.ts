@@ -39,3 +39,16 @@ export interface ItemsQueryParams {
   sort_by?: "name" | "category" | "stock_quantity" | "is_under_min_stock";
   sort_order?: "asc" | "desc";
 }
+
+export interface MovementDetail {
+  id: string; // UUID
+  item_id: string; // UUID
+  item_name: string;
+  movement_type: "IN" | "OUT" | "ADJUSTMENT";
+  quantity: string; // Decimal as string
+  movement_date: string; // ISO date
+  timestamp: string; // ISO datetime
+  unit_cost_override: string | null; // Decimal as string
+  note: string | null;
+  created_by: string | null;
+}
