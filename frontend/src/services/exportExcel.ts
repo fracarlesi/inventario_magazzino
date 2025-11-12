@@ -75,11 +75,11 @@ export function generateExcel(exportData: ExportData): XLSX.WorkBook {
     'Nome': item.name,
     'Categoria': item.category || 'Senza categoria',
     'Unità': item.unit,
-    'Giacenza': formatNumberIT(item.stock_quantity, 3), // Support up to 3 decimals
-    'Min. Scorta': formatNumberIT(item.min_stock, 3),
+    'Giacenza': formatNumberIT(parseFloat(item.stock_quantity), 3), // Support up to 3 decimals
+    'Min. Scorta': formatNumberIT(parseFloat(item.min_stock), 3),
     'Sotto Scorta': formatBooleanIT(item.is_under_min_stock),
-    'Costo Unitario': formatCurrencyIT(item.unit_cost),
-    'Valore': formatCurrencyIT(item.stock_value),
+    'Costo Unitario': formatCurrencyIT(parseFloat(item.unit_cost)),
+    'Valore': formatCurrencyIT(parseFloat(item.stock_value)),
     'Note': item.notes || '',
   }));
 
@@ -107,10 +107,10 @@ export function generateExcel(exportData: ExportData): XLSX.WorkBook {
     'Data': formatDateIT(movement.movement_date),
     'Articolo': movement.item_name,
     'Tipo': movement.movement_type,
-    'Quantità': formatNumberIT(movement.quantity, 3), // Show sign for ADJUSTMENT
+    'Quantità': formatNumberIT(parseFloat(movement.quantity), 3), // Show sign for ADJUSTMENT
     'Unità': '-', // Unit will be fetched from item if needed
     'Costo Unitario': movement.unit_cost_override
-      ? formatCurrencyIT(movement.unit_cost_override)
+      ? formatCurrencyIT(parseFloat(movement.unit_cost_override))
       : '-',
     'Nota': movement.note || '',
   }));
