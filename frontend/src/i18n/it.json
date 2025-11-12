@@ -1,0 +1,76 @@
+{
+  "dashboard": {
+    "title": "Magazzino Officina",
+    "export_button": "Esporta Excel (ultimi 12 mesi)",
+    "export_loading": "Generazione Excel in corso...",
+    "export_success": "File Excel scaricato con successo",
+    "export_error": "Errore durante l'esportazione",
+    "stats": {
+      "total_value": "Valore Totale Magazzino",
+      "under_stock": "Articoli Sotto Scorta",
+      "total_items": "Totale Articoli",
+      "zero_stock": "Articoli a Zero"
+    },
+    "search": {
+      "placeholder": "Cerca per nome articolo...",
+      "label": "Ricerca"
+    },
+    "filters": {
+      "category": {
+        "label": "Categoria",
+        "all": "Tutte le categorie"
+      },
+      "under_stock": {
+        "label": "Solo sotto scorta",
+        "tooltip": "Mostra solo articoli con giacenza inferiore alla scorta minima"
+      }
+    },
+    "table": {
+      "columns": {
+        "name": "Nome",
+        "category": "Categoria",
+        "unit": "Unità",
+        "stock_quantity": "Giacenza",
+        "min_stock": "Min. Scorta",
+        "unit_cost": "Costo Unitario",
+        "stock_value": "Valore Totale",
+        "last_movement": "Ultimo Movimento"
+      },
+      "empty": "Nessun articolo trovato",
+      "loading": "Caricamento in corso...",
+      "under_stock_badge": "Sotto scorta"
+    },
+    "sort": {
+      "label": "Ordina per",
+      "asc": "Crescente",
+      "desc": "Decrescente"
+    }
+  },
+  "common": {
+    "currency": "€",
+    "yes": "Sì",
+    "no": "No",
+    "actions": "Azioni",
+    "cancel": "Annulla",
+    "confirm": "Conferma",
+    "save": "Salva",
+    "delete": "Elimina",
+    "edit": "Modifica",
+    "close": "Chiudi",
+    "loading": "Caricamento...",
+    "error": "Errore",
+    "success": "Successo"
+  },
+  "errors": {
+    "generic": "Si è verificato un errore. Riprova.",
+    "network": "Errore di connessione al server",
+    "not_found": "Risorsa non trovata",
+    "validation": "Dati non validi"
+  },
+  "format": {
+    "date": "DD/MM/YYYY",
+    "datetime": "DD/MM/YYYY HH:mm",
+    "decimal_separator": ",",
+    "thousands_separator": "."
+  }
+}

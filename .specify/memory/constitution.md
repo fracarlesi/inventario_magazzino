@@ -1,50 +1,77 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+SYNC IMPACT REPORT
+==================
+Version: 0.0.0 → 1.0.0
+Rationale: Initial constitution for inventario_magazzino project
+
+Modified Principles: N/A (initial creation)
+Added Sections:
+  - Core Principles (I-IV)
+  - Data Integrity Requirements
+  - Development Workflow
+  - Governance
+
+Removed Sections: N/A (initial creation)
+
+Template Status:
+  ✅ plan-template.md - Reviewed, constitution check compatible
+  ✅ spec-template.md - Reviewed, requirements align with principles
+  ✅ tasks-template.md - Reviewed, task structure supports principles
+  ✅ agent-file-template.md - Reviewed, no updates needed
+  ✅ checklist-template.md - Reviewed, no updates needed
+
+Follow-up TODOs: None
+-->
+
+# Inventario Magazzino Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Simplicity First
+The system MUST remain simple and focused on core warehouse operations: tracking items in and out, displaying current inventory status. Every feature addition MUST be justified against this core purpose. Complexity that does not directly serve the single-user, single-shop use case MUST be rejected.
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+**Rationale**: This is a single-user tool for a car repair shop. Over-engineering with multi-tenancy, complex permissions, or enterprise features would add maintenance burden without value.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### II. Data Integrity (NON-NEGOTIABLE)
+All inventory transactions MUST be recorded with complete traceability. The system MUST maintain an audit trail of all entries and exits. Data loss or corruption is unacceptable. Each transaction MUST capture: timestamp, item, quantity, operation type (in/out), and current stock level.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+**Rationale**: Inventory accuracy is critical for business operations. Missing or incorrect data directly impacts shop operations and customer service.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### III. User-Centric Interface
+The frontend interface MUST be intuitive enough for non-technical shop staff to use without training. Forms MUST be clear, validation messages MUST be helpful, and the current inventory view MUST be immediately understandable. The system MUST respond to user actions within 2 seconds under normal conditions.
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+**Rationale**: The target user is shop personnel focused on repairs, not IT specialists. The tool must be self-explanatory and fast to use during busy operations.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+### IV. Single-Source Architecture
+This is a single-user, single-shop system. The architecture MUST reflect this reality. Database design, authentication, and deployment MUST optimize for the single-user scenario. Multi-user features MUST NOT be implemented unless explicitly required and justified.
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+**Rationale**: Building for scale that won't exist wastes time and introduces unnecessary complexity. The system serves one shop with one user.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+## Data Integrity Requirements
+
+- All write operations MUST be atomic and transactional
+- The system MUST validate all inputs before persisting to database
+- Inventory quantities MUST be tracked as integers (no fractional items unless parts inventory requires it)
+- Stock levels MUST NOT go negative without explicit warning
+- Every transaction MUST be timestamped with server time (not client time)
+- Database backups MUST be configured and documented in deployment instructions
+
+## Development Workflow
+
+- Code changes MUST include basic validation (manual testing or automated tests)
+- Breaking changes to data models MUST include migration scripts
+- Frontend changes MUST be tested in the target browser environment
+- All configuration (database, API keys, etc.) MUST use environment variables, never hardcoded
+- Deployment instructions MUST be maintained and tested
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution establishes the architectural and quality standards for the Inventario Magazzino project. All feature decisions, code reviews, and implementation plans MUST align with these principles.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Amendment Process**: Changes to this constitution require documentation of (a) what is changing, (b) why the change is necessary, and (c) impact on existing code/templates.
+
+**Compliance**: All specifications, plans, and tasks generated through the /speckit commands MUST reference and comply with these principles. Any deviation MUST be explicitly justified in the complexity tracking section of the plan document.
+
+**Simplicity Review**: Before implementing any feature, ask: "Does this serve the single-user car shop scenario?" If not, reject or simplify.
+
+**Version**: 1.0.0 | **Ratified**: 2025-11-11 | **Last Amended**: 2025-11-11

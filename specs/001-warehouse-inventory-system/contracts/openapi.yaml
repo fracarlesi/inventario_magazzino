@@ -1,0 +1,1308 @@
+openapi: 3.1.0
+info:
+  title: Warehouse Inventory Management API
+  description: |
+    REST API per la gestione del magazzino officina con registrazione movimenti (IN/OUT/ADJUSTMENT),
+    inventario in tempo reale, e funzionalità di export Excel.
+
+    ## Architettura
+    - **Backend**: FastAPI con validazione Pydantic
+    - **Database**: PostgreSQL 15+ con event-sourcing (movimenti immutabili)
+    - **Frontend**: Vercel (Next.js)
+
+    ## Caratteristiche Principali
+    - Giacenze calcolate in tempo reale da movimenti
+    - Validazione movimenti OUT per prevenire giacenze negative
+    - Rettifiche inventario (ADJUSTMENT) con nota obbligatoria
+    - Export Excel lato client (ultimi 12 mesi)
+    - Supporto per quantità decimali (peso/volume)
+
+    ## Localizzazione
+    Tutti i messaggi di errore e le descrizioni sono in italiano.
+  version: 1.0.0
+  contact:
+    name: Warehouse Inventory System
+    email: support@example.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8000
+    description: Development server (localhost)
+  - url: https://inventario-magazzino.onrender.com
+    description: Production server (Render)
+
+tags:
+  - name: Items
+    description: Gestione anagrafica articoli (creazione, modifica, eliminazione)
+  - name: Movements
+    description: Registrazione e consultazione movimenti di magazzino (IN/OUT/ADJUSTMENT)
+  - name: Dashboard
+    description: Statistiche e viste aggregate per la dashboard principale
+  - name: Export
+    description: Metadata per export Excel lato client
+
+paths:
+  /api/items:
+    get:
+      tags: [Items]
+      summary: Lista articoli con filtri
+      description: |
+        Restituisce l'elenco completo degli articoli in magazzino con giacenze calcolate in tempo reale.
+        Supporta ricerca per nome, filtro per categoria, e visualizzazione solo articoli sotto scorta.
+
+        **Requisiti**: FR-001, FR-002, FR-003, FR-004
+      operationId: listItems
+      parameters:
+        - name: search
+          in: query
+          description: Ricerca parziale nel nome articolo (case-insensitive)
+          required: false
+          schema:
+            type: string
+            example: "filtro"
+        - name: category
+          in: query
+          description: Filtra per categoria esatta
+          required: false
+          schema:
+            type: string
+            example: "Filtri olio"
+        - name: under_stock_only
+          in: query
+          description: Mostra solo articoli sotto scorta minima
+          required: false
+          schema:
+            type: boolean
+            default: false
+        - name: sort_by
+          in: query
+          description: Campo per ordinamento
+          required: false
+          schema:
+            type: string
+            enum: [name, category, stock_quantity, is_under_min_stock]
+            default: name
+        - name: sort_order
+          in: query
+          description: Direzione ordinamento
+          required: false
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: asc
+      responses:
+        '200':
+          description: Lista articoli restituita con successo
+          headers:
+            Access-Control-Allow-Origin:
+              description: CORS header per frontend Vercel
+              schema:
+                type: string
+                example: "*"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ItemWithStock'
+                  total:
+                    type: integer
+                    description: Numero totale di articoli (senza filtri)
+                    example: 42
+                  filtered:
+                    type: integer
+                    description: Numero di articoli dopo applicazione filtri
+                    example: 12
+              examples:
+                success:
+                  summary: Risposta con articoli
+                  value:
+                    items:
+                      - id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                        name: "Olio motore 5W30"
+                        category: "Lubrificanti"
+                        unit: "lt"
+                        notes: "Olio sintetico long life"
+                        min_stock: 5.0
+                        unit_cost: 8.50
+                        stock_quantity: 17.0
+                        stock_value: 144.50
+                        is_under_min_stock: false
+                        last_movement_at: "2025-11-10T14:30:00Z"
+                        created_at: "2025-01-15T10:00:00Z"
+                      - id: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+                        name: "Filtro olio"
+                        category: "Filtri"
+                        unit: "pz"
+                        notes: null
+                        min_stock: 10.0
+                        unit_cost: 4.20
+                        stock_quantity: 5.0
+                        stock_value: 21.00
+                        is_under_min_stock: true
+                        last_movement_at: "2025-11-08T09:15:00Z"
+                        created_at: "2025-01-20T11:30:00Z"
+                    total: 42
+                    filtered: 2
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+    post:
+      tags: [Items]
+      summary: Crea nuovo articolo
+      description: |
+        Crea un nuovo articolo in magazzino con giacenza iniziale zero.
+        I movimenti successivi aggiorneranno la giacenza.
+
+        **Requisiti**: FR-013, FR-020, FR-021
+      operationId: createItem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItemCreate'
+            examples:
+              standard:
+                summary: Articolo standard
+                value:
+                  name: "Filtro abitacolo"
+                  category: "Filtri"
+                  unit: "pz"
+                  notes: "Formato universale"
+                  min_stock: 5.0
+                  unit_cost: 8.50
+              no_category:
+                summary: Articolo senza categoria
+                value:
+                  name: "Bulloni M8"
+                  unit: "pz"
+                  min_stock: 20.0
+                  unit_cost: 0.15
+              free_item:
+                summary: Articolo con costo zero
+                value:
+                  name: "Materiale recuperato"
+                  category: "Varie"
+                  unit: "kg"
+                  min_stock: 0.0
+                  unit_cost: 0.0
+                  notes: "Recupero da dismissioni"
+      responses:
+        '201':
+          description: Articolo creato con successo
+          headers:
+            Location:
+              description: URI del nuovo articolo
+              schema:
+                type: string
+                example: "/api/items/a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+                example: "*"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemWithStock'
+              examples:
+                success:
+                  summary: Articolo creato
+                  value:
+                    id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                    name: "Filtro abitacolo"
+                    category: "Filtri"
+                    unit: "pz"
+                    notes: "Formato universale"
+                    min_stock: 5.0
+                    unit_cost: 8.50
+                    stock_quantity: 0.0
+                    stock_value: 0.0
+                    is_under_min_stock: true
+                    last_movement_at: null
+                    created_at: "2025-11-11T10:30:00Z"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Conflitto - Nome articolo già esistente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                duplicate:
+                  summary: Nome duplicato
+                  value:
+                    detail: "Esiste già un articolo con nome 'Filtro abitacolo'"
+                    error_code: "DUPLICATE_ITEM_NAME"
+
+  /api/items/{id}:
+    get:
+      tags: [Items]
+      summary: Dettaglio articolo
+      description: Restituisce i dettagli completi di un articolo specifico con giacenza corrente
+      operationId: getItem
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '200':
+          description: Articolo trovato
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemWithStock'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Items]
+      summary: Aggiorna articolo
+      description: |
+        Modifica i dati di un articolo esistente. La giacenza NON può essere modificata
+        direttamente (si usa registrazione movimenti).
+
+        **Requisiti**: FR-014
+      operationId: updateItem
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItemUpdate'
+            examples:
+              update_cost:
+                summary: Aggiorna costo unitario
+                value:
+                  name: "Olio motore 5W30"
+                  category: "Lubrificanti"
+                  unit: "lt"
+                  notes: "Olio sintetico long life - nuovo fornitore"
+                  min_stock: 5.0
+                  unit_cost: 9.00
+              update_threshold:
+                summary: Modifica soglia minima
+                value:
+                  name: "Filtro olio"
+                  category: "Filtri"
+                  unit: "pz"
+                  min_stock: 15.0
+                  unit_cost: 4.20
+      responses:
+        '200':
+          description: Articolo aggiornato con successo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemWithStock'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Items]
+      summary: Elimina articolo
+      description: |
+        Elimina un articolo dal magazzino. Permesso solo se:
+        - Giacenza corrente = 0
+        - Nessun movimento negli ultimi 12 mesi
+
+        **Requisiti**: FR-015, FR-016, FR-017
+      operationId: deleteItem
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '204':
+          description: Articolo eliminato con successo
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Conflitto - Eliminazione non permessa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                non_zero_stock:
+                  summary: Giacenza non zero
+                  value:
+                    detail: "Impossibile eliminare: giacenza non zero (attuale: 12.5 pz)"
+                    error_code: "CANNOT_DELETE_NON_ZERO_STOCK"
+                recent_movements:
+                  summary: Movimenti recenti
+                  value:
+                    detail: "Impossibile eliminare: l'articolo ha movimenti recenti (ultimi 12 mesi). Ultimo movimento: 2025-09-15"
+                    error_code: "CANNOT_DELETE_HAS_RECENT_MOVEMENTS"
+
+  /api/items/autocomplete/categories:
+    get:
+      tags: [Items]
+      summary: Autocomplete categorie
+      description: |
+        Restituisce l'elenco delle categorie già utilizzate per suggerimenti autocomplete.
+
+        **Requisiti**: FR-018
+      operationId: autocompleteCategories
+      parameters:
+        - name: q
+          in: query
+          description: Filtro parziale per la categoria
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Lista categorie
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  categories:
+                    type: array
+                    items:
+                      type: string
+                    example: ["Filtri", "Filtri olio", "Filtri aria", "Lubrificanti", "Freni", "Liquidi"]
+
+  /api/items/autocomplete/units:
+    get:
+      tags: [Items]
+      summary: Autocomplete unità di misura
+      description: |
+        Restituisce l'elenco delle unità di misura già utilizzate per suggerimenti autocomplete.
+
+        **Requisiti**: FR-018
+      operationId: autocompleteUnits
+      responses:
+        '200':
+          description: Lista unità
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  units:
+                    type: array
+                    items:
+                      type: string
+                    example: ["pz", "kg", "lt", "m", "kit"]
+
+  /api/movements:
+    get:
+      tags: [Movements]
+      summary: Lista movimenti con filtri
+      description: |
+        Restituisce lo storico dei movimenti di magazzino con opzioni di filtro per data,
+        articolo, e tipo di movimento. Default: ultimi 30 giorni.
+
+        **Requisiti**: FR-022, FR-023, FR-024
+      operationId: listMovements
+      parameters:
+        - name: from_date
+          in: query
+          description: Data inizio range (inclusive)
+          required: false
+          schema:
+            type: string
+            format: date
+            example: "2025-10-01"
+        - name: to_date
+          in: query
+          description: Data fine range (inclusive)
+          required: false
+          schema:
+            type: string
+            format: date
+            example: "2025-11-11"
+        - name: item_id
+          in: query
+          description: Filtra per articolo specifico
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: movement_type
+          in: query
+          description: Filtra per tipo di movimento
+          required: false
+          schema:
+            type: string
+            enum: [IN, OUT, ADJUSTMENT]
+        - name: limit
+          in: query
+          description: Numero massimo di risultati
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+        - name: offset
+          in: query
+          description: Numero di record da saltare (paginazione)
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Lista movimenti
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  movements:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MovementDetail'
+                  total:
+                    type: integer
+                    description: Numero totale di movimenti (senza paginazione)
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+              examples:
+                success:
+                  summary: Storico movimenti
+                  value:
+                    movements:
+                      - id: "m1a2b3c4-d5e6-7890-abcd-ef1234567890"
+                        item_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                        item_name: "Olio motore 5W30"
+                        movement_type: "IN"
+                        quantity: 20.0
+                        unit: "lt"
+                        movement_date: "2025-11-10"
+                        timestamp: "2025-11-10T14:30:00Z"
+                        unit_cost_override: 8.50
+                        note: "Carico fornitore A - Fattura 456"
+                      - id: "m2b3c4d5-e6f7-8901-bcde-f12345678901"
+                        item_id: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+                        item_name: "Filtro olio"
+                        movement_type: "OUT"
+                        quantity: -3.0
+                        unit: "pz"
+                        movement_date: "2025-11-08"
+                        timestamp: "2025-11-08T09:15:00Z"
+                        unit_cost_override: null
+                        note: "Tagliando Alfa Romeo 159"
+                      - id: "m3c4d5e6-f7a8-9012-cdef-123456789012"
+                        item_id: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+                        item_name: "Filtro olio"
+                        movement_type: "ADJUSTMENT"
+                        quantity: -2.0
+                        unit: "pz"
+                        movement_date: "2025-11-05"
+                        timestamp: "2025-11-05T16:45:00Z"
+                        unit_cost_override: null
+                        note: "Conteggio fisico mensile - 2 unità danneggiate"
+                    total: 128
+                    limit: 100
+                    offset: 0
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+    post:
+      tags: [Movements]
+      summary: Registra movimento
+      description: |
+        Registra un nuovo movimento di magazzino (IN/OUT/ADJUSTMENT).
+        Ogni tipo ha validazioni specifiche:
+
+        - **IN**: quantità > 0, optional unit_cost_override, optional note
+        - **OUT**: quantità > 0 (convertita in negativo), validazione giacenza disponibile, conferma richiesta, optional note
+        - **ADJUSTMENT**: target_stock (giacenza desiderata), nota obbligatoria, calcolo automatico delta
+
+        **Requisiti**: FR-006, FR-007, FR-008, FR-009, FR-010, FR-011, FR-012, FR-036, FR-037, FR-038, FR-039
+      operationId: createMovement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/MovementInCreate'
+                - $ref: '#/components/schemas/MovementOutCreate'
+                - $ref: '#/components/schemas/MovementAdjustmentCreate'
+              discriminator:
+                propertyName: movement_type
+                mapping:
+                  IN: '#/components/schemas/MovementInCreate'
+                  OUT: '#/components/schemas/MovementOutCreate'
+                  ADJUSTMENT: '#/components/schemas/MovementAdjustmentCreate'
+            examples:
+              carico:
+                summary: Carico merce (IN)
+                value:
+                  movement_type: "IN"
+                  item_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                  quantity: 25.0
+                  movement_date: "2025-11-11"
+                  unit_cost_override: 8.75
+                  note: "Carico fornitore B - Fattura 789"
+              scarico:
+                summary: Scarico merce (OUT)
+                value:
+                  movement_type: "OUT"
+                  item_id: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+                  quantity: 2.0
+                  movement_date: "2025-11-11"
+                  note: "Usato per riparazione Fiat Panda"
+                  confirmed: true
+              rettifica_positiva:
+                summary: Rettifica in aumento
+                value:
+                  movement_type: "ADJUSTMENT"
+                  item_id: "c3d4e5f6-a7b8-9012-cdef-123456789012"
+                  target_stock: 15.0
+                  movement_date: "2025-11-11"
+                  note: "Conteggio fisico: trovate 5 unità in magazzino secondario"
+              rettifica_negativa:
+                summary: Rettifica in diminuzione
+                value:
+                  movement_type: "ADJUSTMENT"
+                  item_id: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+                  target_stock: 8.0
+                  movement_date: "2025-11-11"
+                  note: "Conteggio fisico mensile - 3 unità danneggiate da infiltrazione acqua"
+      responses:
+        '201':
+          description: Movimento registrato con successo
+          headers:
+            Location:
+              description: URI del nuovo movimento
+              schema:
+                type: string
+                example: "/api/movements/m1a2b3c4-d5e6-7890-abcd-ef1234567890"
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+                example: "*"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MovementDetail'
+              examples:
+                in_success:
+                  summary: Carico registrato
+                  value:
+                    id: "m1a2b3c4-d5e6-7890-abcd-ef1234567890"
+                    item_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                    item_name: "Olio motore 5W30"
+                    movement_type: "IN"
+                    quantity: 25.0
+                    unit: "lt"
+                    movement_date: "2025-11-11"
+                    timestamp: "2025-11-11T10:30:45Z"
+                    unit_cost_override: 8.75
+                    note: "Carico fornitore B - Fattura 789"
+                out_success:
+                  summary: Scarico registrato
+                  value:
+                    id: "m2b3c4d5-e6f7-8901-bcde-f12345678901"
+                    item_id: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+                    item_name: "Filtro olio"
+                    movement_type: "OUT"
+                    quantity: -2.0
+                    unit: "pz"
+                    movement_date: "2025-11-11"
+                    timestamp: "2025-11-11T10:35:22Z"
+                    unit_cost_override: null
+                    note: "Usato per riparazione Fiat Panda"
+                adjustment_success:
+                  summary: Rettifica registrata
+                  value:
+                    id: "m3c4d5e6-f7a8-9012-cdef-123456789012"
+                    item_id: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+                    item_name: "Filtro olio"
+                    movement_type: "ADJUSTMENT"
+                    quantity: -3.0
+                    unit: "pz"
+                    movement_date: "2025-11-11"
+                    timestamp: "2025-11-11T10:40:15Z"
+                    unit_cost_override: null
+                    note: "Conteggio fisico mensile - 3 unità danneggiate da infiltrazione acqua"
+        '400':
+          description: Validazione fallita
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_quantity:
+                  summary: Quantità non valida
+                  value:
+                    detail: "La quantità deve essere maggiore di zero"
+                    error_code: "INVALID_QUANTITY"
+                missing_note_adjustment:
+                  summary: Nota mancante per rettifica
+                  value:
+                    detail: "La nota è obbligatoria per le rettifiche (spiega il motivo della discrepanza)"
+                    error_code: "ADJUSTMENT_NOTE_REQUIRED"
+                no_adjustment_needed:
+                  summary: Nessuna rettifica necessaria
+                  value:
+                    detail: "La giacenza target (15.0) coincide con quella attuale. Nessuna rettifica necessaria."
+                    error_code: "NO_ADJUSTMENT_NEEDED"
+                invalid_date:
+                  summary: Data non valida
+                  value:
+                    detail: "La data del movimento non può essere nel futuro o più di 365 giorni nel passato"
+                    error_code: "INVALID_MOVEMENT_DATE"
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Conflitto - Giacenza insufficiente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                insufficient_stock:
+                  summary: Giacenza insufficiente per scarico
+                  value:
+                    detail: "Impossibile scaricare 5.0 pz. Giacenza disponibile: 3.0 pz"
+                    error_code: "INSUFFICIENT_STOCK"
+                    context:
+                      requested_quantity: 5.0
+                      available_stock: 3.0
+                      unit: "pz"
+
+  /api/movements/{id}:
+    get:
+      tags: [Movements]
+      summary: Dettaglio movimento
+      description: Restituisce i dettagli completi di un movimento specifico
+      operationId: getMovement
+      parameters:
+        - name: id
+          in: path
+          description: ID del movimento
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Movimento trovato
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MovementDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/dashboard/stats:
+    get:
+      tags: [Dashboard]
+      summary: Statistiche dashboard
+      description: |
+        Restituisce le statistiche aggregate per la dashboard principale:
+        - Valore totale magazzino
+        - Numero articoli sotto scorta
+        - Numero totale articoli
+
+        **Requisiti**: FR-041, FR-042
+      operationId: getDashboardStats
+      responses:
+        '200':
+          description: Statistiche calcolate
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardStats'
+              examples:
+                success:
+                  summary: Statistiche esempio
+                  value:
+                    total_warehouse_value: 12458.75
+                    under_stock_count: 5
+                    total_items_count: 42
+                    zero_stock_count: 3
+                    last_updated: "2025-11-11T10:45:00Z"
+
+  /api/export/preview:
+    get:
+      tags: [Export]
+      summary: Metadata per export Excel
+      description: |
+        Restituisce i metadata necessari per generare l'export Excel lato client:
+        - Lista completa articoli con giacenze
+        - Movimenti ultimi 12 mesi
+
+        Il client usa libreria SheetJS per generare il file .xlsx localmente.
+
+        **Requisiti**: FR-025, FR-026, FR-027, FR-028
+      operationId: getExportPreview
+      responses:
+        '200':
+          description: Metadata export
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportData'
+              examples:
+                success:
+                  summary: Dati export
+                  value:
+                    export_date: "2025-11-11"
+                    period_start: "2024-11-11"
+                    period_end: "2025-11-11"
+                    inventory:
+                      - name: "Olio motore 5W30"
+                        category: "Lubrificanti"
+                        unit: "lt"
+                        stock_quantity: 17.0
+                        min_stock: 5.0
+                        is_under_min_stock: false
+                        unit_cost: 8.50
+                        stock_value: 144.50
+                        notes: "Olio sintetico long life"
+                      - name: "Filtro olio"
+                        category: "Filtri"
+                        unit: "pz"
+                        stock_quantity: 5.0
+                        min_stock: 10.0
+                        is_under_min_stock: true
+                        unit_cost: 4.20
+                        stock_value: 21.00
+                        notes: null
+                    movements:
+                      - movement_date: "2025-11-10"
+                        item_name: "Olio motore 5W30"
+                        movement_type: "IN"
+                        quantity: 20.0
+                        unit: "lt"
+                        unit_cost_used: 8.50
+                        note: "Carico fornitore A"
+                      - movement_date: "2025-11-08"
+                        item_name: "Filtro olio"
+                        movement_type: "OUT"
+                        quantity: -3.0
+                        unit: "pz"
+                        unit_cost_used: 4.20
+                        note: "Tagliando Alfa Romeo 159"
+                      - movement_date: "2025-11-05"
+                        item_name: "Filtro olio"
+                        movement_type: "ADJUSTMENT"
+                        quantity: -2.0
+                        unit: "pz"
+                        unit_cost_used: 4.20
+                        note: "Conteggio fisico mensile - 2 unità danneggiate"
+
+components:
+  schemas:
+    ItemCreate:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Nome articolo (univoco)
+          example: "Filtro abitacolo"
+        category:
+          type: string
+          maxLength: 100
+          nullable: true
+          description: Categoria libera (con autocomplete)
+          example: "Filtri"
+        unit:
+          type: string
+          maxLength: 20
+          default: "pz"
+          description: Unità di misura
+          example: "pz"
+        notes:
+          type: string
+          nullable: true
+          description: Note descrittive
+          example: "Formato universale, compatibile maggior parte auto"
+        min_stock:
+          type: number
+          format: decimal
+          minimum: 0
+          default: 0
+          description: Soglia minima per alert sotto scorta
+          example: 5.0
+        unit_cost:
+          type: number
+          format: decimal
+          minimum: 0
+          default: 0
+          description: Costo unitario corrente (può essere 0 per articoli gratuiti)
+          example: 8.50
+
+    ItemUpdate:
+      type: object
+      required:
+        - name
+        - unit
+        - min_stock
+        - unit_cost
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          example: "Filtro abitacolo"
+        category:
+          type: string
+          maxLength: 100
+          nullable: true
+          example: "Filtri"
+        unit:
+          type: string
+          maxLength: 20
+          example: "pz"
+        notes:
+          type: string
+          nullable: true
+          example: "Formato universale"
+        min_stock:
+          type: number
+          format: decimal
+          minimum: 0
+          example: 5.0
+        unit_cost:
+          type: number
+          format: decimal
+          minimum: 0
+          example: 8.50
+
+    ItemWithStock:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identificativo univoco
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        name:
+          type: string
+          example: "Olio motore 5W30"
+        category:
+          type: string
+          nullable: true
+          example: "Lubrificanti"
+        unit:
+          type: string
+          example: "lt"
+        notes:
+          type: string
+          nullable: true
+          example: "Olio sintetico long life"
+        min_stock:
+          type: number
+          format: decimal
+          example: 5.0
+        unit_cost:
+          type: number
+          format: decimal
+          description: Costo unitario corrente
+          example: 8.50
+        stock_quantity:
+          type: number
+          format: decimal
+          description: Giacenza corrente calcolata (somma movimenti)
+          example: 17.0
+        stock_value:
+          type: number
+          format: decimal
+          description: Valore giacenza (stock_quantity × unit_cost)
+          example: 144.50
+        is_under_min_stock:
+          type: boolean
+          description: Flag sotto scorta minima
+          example: false
+        last_movement_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp ultimo movimento
+          example: "2025-11-10T14:30:00Z"
+        created_at:
+          type: string
+          format: date-time
+          description: Data creazione articolo
+          example: "2025-01-15T10:00:00Z"
+
+    MovementInCreate:
+      type: object
+      required:
+        - movement_type
+        - item_id
+        - quantity
+      properties:
+        movement_type:
+          type: string
+          enum: [IN]
+          description: Tipo movimento (carico)
+          example: "IN"
+        item_id:
+          type: string
+          format: uuid
+          description: ID articolo
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        quantity:
+          type: number
+          format: decimal
+          minimum: 0.001
+          exclusiveMinimum: true
+          description: Quantità in ingresso (deve essere > 0)
+          example: 25.0
+        movement_date:
+          type: string
+          format: date
+          description: Data movimento (default oggi, può essere passato recente)
+          example: "2025-11-11"
+        unit_cost_override:
+          type: number
+          format: decimal
+          minimum: 0
+          nullable: true
+          description: Override costo unitario (aggiorna anche articolo.unit_cost)
+          example: 8.75
+        note:
+          type: string
+          nullable: true
+          description: Nota opzionale
+          example: "Carico fornitore B - Fattura 789"
+
+    MovementOutCreate:
+      type: object
+      required:
+        - movement_type
+        - item_id
+        - quantity
+        - confirmed
+      properties:
+        movement_type:
+          type: string
+          enum: [OUT]
+          description: Tipo movimento (scarico)
+          example: "OUT"
+        item_id:
+          type: string
+          format: uuid
+          description: ID articolo
+          example: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+        quantity:
+          type: number
+          format: decimal
+          minimum: 0.001
+          exclusiveMinimum: true
+          description: Quantità in uscita (inserita come positivo, salvata come negativo)
+          example: 3.0
+        movement_date:
+          type: string
+          format: date
+          description: Data movimento
+          example: "2025-11-11"
+        note:
+          type: string
+          nullable: true
+          description: Nota opzionale
+          example: "Usato per riparazione Fiat Panda"
+        confirmed:
+          type: boolean
+          description: Conferma esplicita richiesta per scarico (FR-009)
+          example: true
+
+    MovementAdjustmentCreate:
+      type: object
+      required:
+        - movement_type
+        - item_id
+        - target_stock
+        - note
+      properties:
+        movement_type:
+          type: string
+          enum: [ADJUSTMENT]
+          description: Tipo movimento (rettifica)
+          example: "ADJUSTMENT"
+        item_id:
+          type: string
+          format: uuid
+          description: ID articolo
+          example: "c3d4e5f6-a7b8-9012-cdef-123456789012"
+        target_stock:
+          type: number
+          format: decimal
+          minimum: 0
+          description: Giacenza target desiderata (sistema calcola delta automaticamente)
+          example: 15.0
+        movement_date:
+          type: string
+          format: date
+          description: Data rettifica
+          example: "2025-11-11"
+        note:
+          type: string
+          minLength: 1
+          description: Nota OBBLIGATORIA che spiega motivo della discrepanza
+          example: "Conteggio fisico mensile - trovate 5 unità in magazzino secondario"
+
+    MovementDetail:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identificativo movimento
+          example: "m1a2b3c4-d5e6-7890-abcd-ef1234567890"
+        item_id:
+          type: string
+          format: uuid
+          description: ID articolo
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        item_name:
+          type: string
+          description: Nome articolo (denormalizzato per visualizzazione)
+          example: "Olio motore 5W30"
+        movement_type:
+          type: string
+          enum: [IN, OUT, ADJUSTMENT]
+          description: Tipo movimento
+          example: "IN"
+        quantity:
+          type: number
+          format: decimal
+          description: Quantità movimento (IN positivo, OUT negativo, ADJUSTMENT +/-)
+          example: 25.0
+        unit:
+          type: string
+          description: Unità di misura (denormalizzato)
+          example: "lt"
+        movement_date:
+          type: string
+          format: date
+          description: Data movimento
+          example: "2025-11-11"
+        timestamp:
+          type: string
+          format: date-time
+          description: Timestamp server-side di creazione
+          example: "2025-11-11T10:30:45Z"
+        unit_cost_override:
+          type: number
+          format: decimal
+          nullable: true
+          description: Costo unitario override (solo per IN)
+          example: 8.75
+        note:
+          type: string
+          nullable: true
+          description: Nota (obbligatoria per ADJUSTMENT)
+          example: "Carico fornitore B - Fattura 789"
+
+    DashboardStats:
+      type: object
+      properties:
+        total_warehouse_value:
+          type: number
+          format: decimal
+          description: Valore totale magazzino (somma stock_value tutti articoli)
+          example: 12458.75
+        under_stock_count:
+          type: integer
+          description: Numero articoli sotto scorta minima
+          example: 5
+        total_items_count:
+          type: integer
+          description: Numero totale articoli in magazzino
+          example: 42
+        zero_stock_count:
+          type: integer
+          description: Numero articoli con giacenza zero
+          example: 3
+        last_updated:
+          type: string
+          format: date-time
+          description: Timestamp ultimo aggiornamento statistiche
+          example: "2025-11-11T10:45:00Z"
+
+    ExportData:
+      type: object
+      properties:
+        export_date:
+          type: string
+          format: date
+          description: Data export
+          example: "2025-11-11"
+        period_start:
+          type: string
+          format: date
+          description: Inizio periodo movimenti (12 mesi fa)
+          example: "2024-11-11"
+        period_end:
+          type: string
+          format: date
+          description: Fine periodo movimenti (oggi)
+          example: "2025-11-11"
+        inventory:
+          type: array
+          description: Snapshot inventario corrente
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                example: "Olio motore 5W30"
+              category:
+                type: string
+                nullable: true
+                example: "Lubrificanti"
+              unit:
+                type: string
+                example: "lt"
+              stock_quantity:
+                type: number
+                format: decimal
+                example: 17.0
+              min_stock:
+                type: number
+                format: decimal
+                example: 5.0
+              is_under_min_stock:
+                type: boolean
+                example: false
+              unit_cost:
+                type: number
+                format: decimal
+                example: 8.50
+              stock_value:
+                type: number
+                format: decimal
+                example: 144.50
+              notes:
+                type: string
+                nullable: true
+                example: "Olio sintetico long life"
+        movements:
+          type: array
+          description: Movimenti ultimi 12 mesi
+          items:
+            type: object
+            properties:
+              movement_date:
+                type: string
+                format: date
+                example: "2025-11-10"
+              item_name:
+                type: string
+                example: "Olio motore 5W30"
+              movement_type:
+                type: string
+                enum: [IN, OUT, ADJUSTMENT]
+                example: "IN"
+              quantity:
+                type: number
+                format: decimal
+                example: 20.0
+              unit:
+                type: string
+                example: "lt"
+              unit_cost_used:
+                type: number
+                format: decimal
+                description: Costo unitario al momento del movimento
+                example: 8.50
+              note:
+                type: string
+                nullable: true
+                example: "Carico fornitore A"
+
+    ErrorResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+          description: Messaggio errore in italiano
+          example: "Impossibile scaricare 5.0 pz. Giacenza disponibile: 3.0 pz"
+        error_code:
+          type: string
+          description: Codice errore machine-readable
+          example: "INSUFFICIENT_STOCK"
+        context:
+          type: object
+          nullable: true
+          description: Informazioni aggiuntive specifiche per l'errore
+          additionalProperties: true
+          example:
+            requested_quantity: 5.0
+            available_stock: 3.0
+            unit: "pz"
+
+  parameters:
+    ItemId:
+      name: id
+      in: path
+      description: ID univoco dell'articolo
+      required: true
+      schema:
+        type: string
+        format: uuid
+      example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+
+  responses:
+    BadRequest:
+      description: Richiesta non valida (validazione Pydantic fallita)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            validation_error:
+              summary: Errore validazione
+              value:
+                detail: "Errore di validazione: il campo 'name' è obbligatorio"
+                error_code: "VALIDATION_ERROR"
+                context:
+                  field: "name"
+                  constraint: "required"
+
+    NotFound:
+      description: Risorsa non trovata
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            item_not_found:
+              summary: Articolo non trovato
+              value:
+                detail: "Articolo con ID 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' non trovato"
+                error_code: "ITEM_NOT_FOUND"
+            movement_not_found:
+              summary: Movimento non trovato
+              value:
+                detail: "Movimento con ID 'm1a2b3c4-d5e6-7890-abcd-ef1234567890' non trovato"
+                error_code: "MOVEMENT_NOT_FOUND"
+
+  securitySchemes:
+    # Nessuna autenticazione per MVP (single-user)
+    # Placeholder per future implementazioni (JWT, API Key, etc.)
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Autenticazione JWT (non implementata in MVP).
+        Per uso futuro con multi-utenza.
+
+# Security: Nessuna autenticazione richiesta per MVP (single-user, accesso diretto)
+security: []
