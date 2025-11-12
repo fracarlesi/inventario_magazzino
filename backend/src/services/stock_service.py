@@ -1,7 +1,7 @@
 """Stock query service for current inventory with filters and sorting."""
 from decimal import Decimal
 from typing import Optional
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -161,7 +161,7 @@ async def get_dashboard_stats(db: AsyncSession) -> dict:
 
         # FR-042: Under-stock count (COUNT WHERE stock < min_stock)
         func.count(
-            func.case(
+            case(
                 (func.coalesce(stock_subquery.c.stock_quantity, Decimal("0")) < Item.min_stock, 1),
                 else_=None
             )
@@ -172,7 +172,7 @@ async def get_dashboard_stats(db: AsyncSession) -> dict:
 
         # Zero stock count (items with no movements or stock = 0)
         func.count(
-            func.case(
+            case(
                 (func.coalesce(stock_subquery.c.stock_quantity, Decimal("0")) == 0, 1),
                 else_=None
             )
