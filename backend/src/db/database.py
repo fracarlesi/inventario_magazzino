@@ -38,6 +38,13 @@ if ".pooler." not in DATABASE_URL:
 if DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
+# asyncpg doesn't support sslmode parameter - use ssl=require instead
+# Replace ?sslmode=require with ?ssl=require or &sslmode=require with &ssl=require
+DATABASE_URL = DATABASE_URL.replace("?sslmode=require", "?ssl=require")
+DATABASE_URL = DATABASE_URL.replace("&sslmode=require", "&ssl=require")
+DATABASE_URL = DATABASE_URL.replace("?sslmode=disable", "")
+DATABASE_URL = DATABASE_URL.replace("&sslmode=disable", "")
+
 # Create async engine with NullPool (let Neon pgBouncer handle pooling)
 engine = create_async_engine(
     DATABASE_URL,
