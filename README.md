@@ -184,7 +184,8 @@ inventario_magazzino/
 
 ## 📖 Documentazione
 
-- **[SETUP.md](SETUP.md)** - Guida completa setup e troubleshooting
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** - 🌐 Guida deployment produzione (Vercel + Render + Neon)
+- **[SETUP.md](SETUP.md)** - Guida completa setup locale e troubleshooting
 - **[Specification](specs/001-warehouse-inventory-system/spec.md)** - Requisiti funzionali e user stories
 - **[Implementation Plan](specs/001-warehouse-inventory-system/plan.md)** - Architettura e decisioni tecniche
 - **[Data Model](specs/001-warehouse-inventory-system/data-model.md)** - Schema database e relazioni
@@ -229,18 +230,34 @@ npm run test:e2e:ui           # E2E with UI
 
 ---
 
+## 🌐 Produzione
+
+**✅ Sistema Live e Funzionante!**
+
+- **Frontend**: https://inventario-magazzino.vercel.app
+- **Backend API**: https://inventario-magazzino-backend.onrender.com
+- **Database**: PostgreSQL su Neon (managed, pooled)
+- **Branch Produzione**: `001-warehouse-inventory-system`
+
+### Deployment Status
+- ✅ Backend su Render (Docker, auto-deploy)
+- ✅ Frontend su Vercel (Next.js, auto-deploy)
+- ✅ Database Neon configurato con pooled endpoint
+- ✅ CORS configurato per dominio produzione
+- ✅ Environment variables configurate
+- ✅ Health checks attivi
+- ✅ Sistema testato e verificato
+
+Vedi **[DEPLOYMENT.md](DEPLOYMENT.md)** per guida completa al deployment e troubleshooting.
+
+---
+
 ## 🚧 Roadmap
 
 ### In Sviluppo
 - [ ] Loading states e skeleton loaders
 - [ ] Performance optimization (caching)
 - [ ] Test coverage > 80%
-
-### Deployment
-- [ ] Setup Neon database
-- [ ] Deploy backend su Render
-- [ ] Deploy frontend su Vercel
-- [ ] Configurazione production CORS
 
 ### Future Features
 - [ ] Autenticazione multi-utente
